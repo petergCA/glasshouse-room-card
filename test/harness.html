@@ -1,0 +1,194 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Glasshouse Room Card harness</title>
+<!--
+  Offline test harness. Open directly (file://) in a browser.
+  ?preview   -> the composition used for docs/preview.png
+  default    -> phone (390px) + desktop columns with control sheets open
+  Stubs for ha-card / ha-icon / ha-state-icon and a mock hass (mock-hass.js) stand in for Home Assistant.
+-->
+<style>
+  html, body { margin: 0; }
+  body {
+    min-height: 100vh;
+    color: #e9eef6;
+    font-family: -apple-system, "SF Pro Text", Inter, Roboto, system-ui, sans-serif;
+    background:
+      radial-gradient(1200px 700px at 12% -10%, rgba(88,166,255,0.16), transparent 60%),
+      radial-gradient(900px 600px at 95% 5%, rgba(196,140,255,0.12), transparent 60%),
+      radial-gradient(1000px 800px at 50% 120%, rgba(77,214,232,0.08), transparent 60%),
+      linear-gradient(180deg, #070b13 0%, #0a1020 55%, #070b13 100%) fixed;
+  }
+  .page { display: flex; gap: 28px; padding: 20px; align-items: flex-start; }
+  .phone { flex: 0 0 390px; width: 390px; display: flex; flex-direction: column; gap: 12px;
+    padding: 8px; box-sizing: border-box; border-right: 1px dashed rgba(255,255,255,0.08); }
+  .wide { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 16px; }
+  .row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-items: start; }
+  h6 { margin: 4px 0 0; font: 600 11px/1 system-ui; letter-spacing: .09em; text-transform: uppercase; color: #5d697d; }
+  #log { font: 11px/1.4 ui-monospace, monospace; color: #5d697d; white-space: pre-wrap; }
+  body.preview .page { gap: 20px; padding: 28px; }
+  body.preview .phone { border-right: 0; flex-basis: 380px; width: 380px; padding: 0; }
+</style>
+<script src="icons.js" onerror="window.GH_TEST_ICONS = {}"></script>
+<script>
+  // ---- minimal Home Assistant element stubs ----
+  customElements.define('ha-card', class extends HTMLElement {});
+
+  function svgFor(name) {
+    const d = (window.GH_TEST_ICONS || {})[name];
+    if (!d) {
+      const label = String(name || '?').replace('mdi:', '').slice(0, 2).toUpperCase();
+      return `<span style="font:700 9px system-ui;letter-spacing:-.02em">${label}</span>`;
+    }
+    return `<svg viewBox="0 0 24 24" width="100%" height="100%" style="display:block;fill:currentColor"><path d="${d}"></path></svg>`;
+  }
+
+  class StubIcon extends HTMLElement {
+    static get observedAttributes() { return ['icon']; }
+    constructor() {
+      super();
+      this.attachShadow({ mode: 'open' }).innerHTML =
+        '<style>:host{display:inline-flex;width:var(--mdc-icon-size,24px);height:var(--mdc-icon-size,24px);align-items:center;justify-content:center;vertical-align:middle}</style><span part="g" style="display:contents"></span>';
+    }
+    set icon(v) { this._icon = v; this._render(); }
+    get icon() { return this._icon; }
+    attributeChangedCallback(n, o, v) { this._icon = v; this._render(); }
+    _render() { this.shadowRoot.querySelector('span').innerHTML = svgFor(this._icon); }
+  }
+  customElements.define('ha-icon', StubIcon);
+
+  function stateIcon(st) {
+    if (!st) return 'mdi:alert-circle-outline';
+    const d = st.entity_id.split('.')[0], on = st.state === 'on', a = st.attributes;
+    switch (d) {
+      case 'light': return 'mdi:lightbulb';
+      case 'fan': return on ? 'mdi:fan' : 'mdi:fan-off';
+      case 'switch': return on ? 'mdi:toggle-switch-variant' : 'mdi:toggle-switch-variant-off';
+      case 'input_boolean': return on ? 'mdi:check-circle-outline' : 'mdi:close-circle-outline';
+      case 'cover':
+        if (a.device_class === 'blind') return st.state === 'closed' ? 'mdi:blinds' : 'mdi:blinds-open';
+        return st.state === 'closed' ? 'mdi:window-shutter' : 'mdi:window-shutter-open';
+      case 'binary_sensor': return a.device_class === 'moisture' ? 'mdi:water-percent' : 'mdi:motion-sensor';
+      case 'sensor': return a.device_class === 'power' ? 'mdi:power' : 'mdi:thermometer';
+      default: return 'mdi:home-outline';
+    }
+  }
+  customElements.define('ha-state-icon', class extends StubIcon {
+    set stateObj(st) { this._st = st; this._icon = stateIcon(st); this._render(); }
+    get stateObj() { return this._st; }
+    set hass(h) { this._hass = h; }
+  });
+</script>
+<script src="mock-hass.js"></script>
+<script src="../glasshouse-room-card.js"></script>
+</head>
+<body>
+<div class="page">
+  <div class="phone" id="phone"></div>
+  <div class="wide" id="wide"></div>
+</div>
+<pre id="log"></pre>
+<script>
+(function () {
+  const preview = location.search.includes('preview');
+  if (preview) document.body.classList.add('preview');
+  const mock = GHMock.createHass();
+  window.mock = mock;
+
+  const LIVING = {
+    name: 'Living Room', icon: 'mdi:sofa',
+    temperature: 'sensor.lr_temperature', humidity: 'sensor.lr_humidity', motion: 'binary_sensor.lr_motion',
+    entities: [
+      'light.lr_ceiling',
+      { entity: 'light.lr_strip', icon: 'mdi:led-strip-variant' },
+      { entity: 'light.lr_floor', icon: 'mdi:floor-lamp' },
+      { entity: 'fan.lr_ceiling', name: 'Ceiling Fan', icon: 'mdi:ceiling-fan' },
+      { entity: 'cover.lr_blinds' },
+      { entity: 'switch.lr_lamp', name: 'Lamp', icon: 'mdi:lamp' },
+      { entity: 'switch.lr_soundbar', icon: 'mdi:speaker' },
+      { entity: 'switch.lr_heater', icon: 'mdi:radiator' },
+    ],
+  };
+  const BEDROOM = {
+    name: 'Primary Bedroom', icon: 'mdi:bed-outline',
+    temperature: 'sensor.br_temperature', motion: 'binary_sensor.br_motion',
+    entities: [
+      { entity: 'light.br_ceiling', icon: 'mdi:ceiling-light' },
+      { entity: 'light.br_left', icon: 'mdi:desk-lamp' },
+      { entity: 'light.br_right', icon: 'mdi:desk-lamp' },
+      'fan.br_tower',
+      'cover.br_shade',
+      { entity: 'input_boolean.br_sleep', icon: 'mdi:sleep' },
+    ],
+  };
+  const KITCHEN = {
+    name: 'Kitchen', icon: 'mdi:silverware-fork-knife', columns: 3,
+    temperature: 'sensor.k_temperature', humidity: 'sensor.k_humidity',
+    entities: [
+      { entity: 'light.k_pendants', icon: 'mdi:ceiling-light' },
+      { entity: 'light.k_cans', icon: 'mdi:light-recessed' },
+      { entity: 'light.k_under', icon: 'mdi:led-strip-variant' },
+      { entity: 'switch.k_coffee', icon: 'mdi:coffee-maker' },
+      { entity: 'switch.k_disposal' },
+      { entity: 'fan.k_hood', icon: 'mdi:fan' },
+      { entity: 'input_boolean.k_guest', icon: 'mdi:home-outline' },
+      'sensor.k_dishwasher',
+      'binary_sensor.k_leak',
+    ],
+  };
+
+  const cards = [];
+  function add(parent, config, opts) {
+    const box = document.createElement('div');
+    box.style.cssText = 'display:flex;flex-direction:column;gap:8px;min-width:0';
+    if (opts && opts.label) { const l = document.createElement('h6'); l.textContent = opts.label; box.append(l); }
+    const el = document.createElement('glasshouse-room-card');
+    el.setConfig(config);
+    box.append(el);
+    parent.append(box);
+    cards.push({ el, opts: opts || {} });
+    return el;
+  }
+
+  const phone = document.getElementById('phone');
+  const wide = document.getElementById('wide');
+  if (preview) {
+    add(phone, LIVING, { sheet: 'light.lr_ceiling' });
+    add(phone, BEDROOM);
+    add(wide, { ...KITCHEN, columns: 'auto' });
+    const r2 = document.createElement('div'); r2.className = 'row'; wide.append(r2);
+    add(r2, LIVING, { sheet: 'fan.lr_ceiling' });
+    add(r2, BEDROOM, { sheet: 'cover.br_shade' });
+  } else {
+    add(phone, LIVING, { label: 'phone · light sheet', sheet: 'light.lr_ceiling' });
+    add(phone, BEDROOM, { label: 'phone · fan sheet (3 speeds, oscillate)', sheet: 'fan.br_tower' });
+    add(phone, { ...LIVING, name: 'Living Room', columns: 2 }, { label: 'phone · switch sheet', sheet: 'switch.lr_soundbar' });
+    add(wide, LIVING, { label: 'wide · auto columns · cover sheet', sheet: 'cover.lr_blinds' });
+    add(wide, KITCHEN, { label: 'wide · columns: 3 · sensor sheet', sheet: 'sensor.k_dishwasher' });
+    const row = document.createElement('div'); row.className = 'row'; wide.append(row);
+    add(row, LIVING, { label: 'section width · fan sheet', sheet: 'fan.lr_ceiling' });
+    add(row, BEDROOM, { label: 'section width · all off' });
+  }
+
+  mock.subscribe((hass) => cards.forEach(({ el }) => { el.hass = hass; }));
+  cards.forEach(({ el, opts }) => { if (opts.sheet) el._openSheet(opts.sheet); });
+
+  // a visible log of events for manual testing
+  const log = document.getElementById('log');
+  if (!preview) {
+    document.addEventListener('hass-more-info', (e) => { log.textContent += `more-info ${e.detail.entityId}\n`; });
+    const orig = mock.current.callService;
+    setInterval(() => {
+      log.textContent = mock.calls.slice(-8).map((c) => `${c.domain}.${c.service} ${JSON.stringify(c.data)}`).join('\n');
+    }, 500);
+    void orig;
+  } else {
+    log.remove();
+  }
+})();
+</script>
+</body>
+</html>
