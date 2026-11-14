@@ -1,12 +1,12 @@
 /*!
- * Glasshouse Room Card v1.1.0
+ * Glasshouse Room Card v1.2.0
  * A room tile with full control of every device in the room.
  * Part of the Glasshouse card suite. MIT License (c) 2026 Peter Gray.
  */
 (() => {
   'use strict';
 
-  const VERSION = '1.1.0';
+  const VERSION = '1.2.0';
   const TAG = 'glasshouse-room-card';
 
   const HOLD_MS = 500;
@@ -372,6 +372,8 @@
     .ticks span.cur { color: var(--accent); }
 
     .btns { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 8px; }
+    .xbtns { grid-auto-flow: row; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .xic { display: inline-flex; }
     .btn {
       display: inline-flex; align-items: center; justify-content: center; gap: 6px;
       height: 44px; padding: 0 12px; border-radius: 12px;
@@ -545,6 +547,8 @@
         if (!o.entity || typeof o.entity !== 'string' || !o.entity.includes('.')) {
           throw new Error(`glasshouse-room-card: entities[${i}] needs a valid "entity" id`);
         }
+        o.controls = (Array.isArray(o.controls) ? o.controls : []).map((c) => (typeof c === 'string' ? { entity: c } : { ...c }))
+          .filter((c) => c && typeof c.entity === 'string' && c.entity.includes('.'));
         return o;
       });
       for (const k of ['temperature', 'humidity', 'motion']) {
@@ -557,8 +561,11 @@
         throw new Error('glasshouse-room-card: "columns" must be a whole number from 1 to 6, or "auto"');
       }
       this._config = { ...config, entities, columns };
+      this._ctlOwner = new Map();
+      for (const e of entities) for (const c of e.controls) this._ctlOwner.set(c.entity, e.entity);
       this._watch = [
         ...entities.map((e) => e.entity),
+        ...this._ctlOwner.keys(),
         ...['temperature', 'humidity', 'motion'].map((k) => config[k]).filter(Boolean),
       ];
       this._built = false;
@@ -586,6 +593,11 @@
         if (this._pills.has(id)) this._updatePill(id);
         if (this._sheet && this._sheet.eid === id) this._sheet.update();
         if (this._pop && this._pop.eid === id) this._pop.update();
+        const owner = this._ctlOwner && this._ctlOwner.get(id);
+        if (owner) {
+          if (this._sheet && this._sheet.eid === owner) this._sheet.update();
+          if (this._pop && this._pop.eid === owner) this._pop.update();
+        }
       }
       this._updateHeader();
     }
@@ -1199,6 +1211,7 @@
       else if (d === 'cover') this._coverControls(eid, st0, body, updaters);
       else if (d === 'switch' || d === 'input_boolean') this._toggleControls(eid, body, updaters);
       else this._readoutControls(eid, body, updaters);
+      if (ent.controls && ent.controls.length) this._extraControls(ent.controls, body, updaters);
 
       const more = h('button', { class: 'more', type: 'button' }, [document.createTextNode('More…'), icon('mdi:chevron-right')]);
       more.addEventListener('click', () => this._moreInfo(eid));
@@ -1339,7 +1352,8 @@
       }
       const sf = Number(st.attributes.supported_features) || 0;
       const btns = [];
-      if ((sf & FAN_OSCILLATE) || st.attributes.oscillating !== undefined) {
+      const ownCtl = this._config.entities.find((x) => x.entity === eid);
+      if (!(ownCtl && ownCtl.controls.length) && ((sf & FAN_OSCILLATE) || st.attributes.oscillating !== undefined)) {
         const b = h('button', { class: 'btn', type: 'button' }, [icon('mdi:arrow-oscillating'), h('span', { text: 'Oscillate' })]);
         b.addEventListener('click', () => {
           const x = this._hass.states[eid];
@@ -1423,6 +1437,35 @@
         on.setAttribute('aria-pressed', String(x.state === 'on'));
         off.setAttribute('aria-pressed', String(x.state !== 'on'));
       });
+    }
+
+    /** Related on/off entities shown as toggle buttons (e.g. a fan's horizontal / vertical oscillation switches). */
+    _extraControls(controls, body, updaters) {
+      const btns = controls.map((c) => {
+        const label = h('span');
+        const ic = h('span', { class: 'xic' });
+        const b = h('button', { class: 'btn', type: 'button' }, [ic, label]);
+        let iconRef = null;
+        b.addEventListener('click', () => {
+          const x = this._hass.states[c.entity];
+          if (isUnavailable(x)) return;
+          const d = domainOf(c.entity);
+          if (d === 'button' || d === 'input_button') this._call(d, 'press', { entity_id: c.entity });
+          else if (d === 'script' || d === 'scene') this._call(d, 'turn_on', { entity_id: c.entity });
+          else this._call(TOGGLE_DOMAINS.has(d) ? d : 'homeassistant', 'toggle', { entity_id: c.entity });
+          this._haptic('light');
+        });
+        updaters.push(() => {
+          const x = this._hass.states[c.entity];
+          const on = !!x && x.state === 'on';
+          label.textContent = c.name || (x && x.attributes.friendly_name) || c.entity;
+          b.setAttribute('aria-pressed', String(on));
+          b.disabled = isUnavailable(x);
+          iconRef = this._renderIcon(ic, { entity: c.entity, icon: c.icon }, x, iconRef);
+        });
+        return b;
+      });
+      body.append(h('div', { class: 'btns xbtns' }, btns));
     }
 
     _readoutControls(eid, body, updaters) {

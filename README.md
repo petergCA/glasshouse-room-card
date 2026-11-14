@@ -68,6 +68,7 @@ Entity object options:
 
 | Option | Type | Description |
 |---|---|---|
+| `controls` | list | Extra on/off entities shown as toggle buttons in this device's control panel (e.g. `[{entity: switch.fan_horizontal_oscillation, name: Horizontal, icon: mdi:arrow-left-right}]`). For a fan this replaces the built-in Oscillate button. |
 | `entity` | entity | **Required.** The entity id. |
 | `name` | string | Display name (defaults to the friendly name). |
 | `icon` | string | Icon (defaults to the entity's state icon). |
