@@ -68,7 +68,7 @@ Entity object options:
 
 | Option | Type | Description |
 |---|---|---|
-| `controls` | list | Extra on/off entities shown as toggle buttons in this device's control panel (e.g. `[{entity: switch.fan_horizontal_oscillation, name: Horizontal, icon: mdi:arrow-left-right}]`). For a fan this replaces the built-in Oscillate button. |
+| `controls` | list | Extra entities in this device's control panel: on/off entities become toggle buttons (e.g. `[{entity: switch.fan_horizontal_oscillation, name: Horizontal, icon: mdi:arrow-left-right}]`), `number` / `input_number` entities become sliders (e.g. a tablet screen switch with `number.tablet_screen_brightness`). A device with controls opens the panel when you tap the tile body; the icon still toggles it. For a fan, toggles replace the built-in Oscillate button. |
 | `entity` | entity | **Required.** The entity id. |
 | `name` | string | Display name (defaults to the friendly name). |
 | `icon` | string | Icon (defaults to the entity's state icon). |

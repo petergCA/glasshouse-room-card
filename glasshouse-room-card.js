@@ -1,12 +1,13 @@
 /*!
- * Glasshouse Room Card v1.2.0
+ * Glasshouse Room Card v1.3.0
  * A room tile with full control of every device in the room.
  * Part of the Glasshouse card suite. MIT License (c) 2026 Peter Gray.
  */
 (() => {
   'use strict';
 
-  const VERSION = '1.2.0';
+  const VERSION = '1.3.0';
+  const NUMBER_DOMAINS = new Set(['number', 'input_number']);
   const TAG = 'glasshouse-room-card';
 
   const HOLD_MS = 500;
@@ -768,7 +769,9 @@
       if (d === 'light') { const c = lightCaps(st); return c.dimmable || c.temp || c.color; }
       if (d === 'fan') return fanSupportsSpeed(st);
       if (d === 'cover') return isNum(st.attributes.current_position);
-      return false;
+      // any device with extra controls (e.g. a tablet screen switch + its brightness number) opens the panel too
+      const own = this._config.entities.find((x) => x.entity === eid);
+      return !!(own && own.controls.length);
     }
 
     _openPop(eid, x, y) {
@@ -1441,7 +1444,31 @@
 
     /** Related on/off entities shown as toggle buttons (e.g. a fan's horizontal / vertical oscillation switches). */
     _extraControls(controls, body, updaters) {
-      const btns = controls.map((c) => {
+      // number / input_number controls become sliders (e.g. a tablet's screen brightness)
+      for (const c of controls.filter((x) => NUMBER_DOMAINS.has(domainOf(x.entity)))) {
+        const st = this._hass.states[c.entity];
+        const a = (st && st.attributes) || {};
+        const min = isNum(a.min) ? Number(a.min) : 0;
+        const max = isNum(a.max) ? Number(a.max) : 100;
+        const step = isNum(a.step) ? Number(a.step) : 1;
+        const unit = a.unit_of_measurement ? ` ${a.unit_of_measurement}` : '';
+        const s = this._slider({
+          eid: c.entity, key: 'value', label: c.name || a.friendly_name || c.entity, min, max, step,
+          format: (v) => `${Math.round(v * 100) / 100}${unit}`,
+          read: (x) => (x && isNum(x.state) ? Number(x.state) : min),
+          commit: (v) => this._call(domainOf(c.entity), 'set_value', { entity_id: c.entity, value: v }),
+        });
+        body.append(s.wrap);
+        updaters.push(() => {
+          const x = this._hass.states[c.entity];
+          s.setDim(isUnavailable(x));
+          s.input.disabled = isUnavailable(x);
+          if (!isUnavailable(x)) s.set(x);
+        });
+      }
+      const toggles = controls.filter((x) => !NUMBER_DOMAINS.has(domainOf(x.entity)));
+      if (!toggles.length) return;
+      const btns = toggles.map((c) => {
         const label = h('span');
         const ic = h('span', { class: 'xic' });
         const b = h('button', { class: 'btn', type: 'button' }, [ic, label]);

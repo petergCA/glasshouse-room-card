@@ -33,6 +33,8 @@
       s('switch.lr_lamp', 'on', { friendly_name: 'Reading Lamp' }),
       s('switch.lr_soundbar', 'off', { friendly_name: 'Sound Bar Power' }),
       s('switch.lr_heater', 'unavailable', { friendly_name: 'Space Heater' }),
+      s('switch.lr_tablet', 'on', { friendly_name: 'Tablet Screen' }),
+      s('number.lr_tablet_brightness', '120', { friendly_name: 'Tablet Brightness', min: 0, max: 255, step: 1 }),
 
       // Bedroom (everything off)
       s('sensor.br_temperature', '68.4', { unit_of_measurement: '°F', device_class: 'temperature' }),

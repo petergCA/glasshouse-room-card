@@ -225,6 +225,27 @@ function setup(opts) {
     ok(w.customCards.some((x) => x.type === 'glasshouse-room-card' && x.preview), 'registered in customCards');
   }
 
+  {
+    // a switch with a number control: body tap opens the panel with a slider; the icon still toggles
+    const { mock, card, w, pill, tap } = setup();
+    card.setConfig({ name: 'Tablet', entities: [{ entity: 'switch.lr_tablet', controls: ['number.lr_tablet_brightness'] }] });
+    card.hass = mock.current;
+    await sleep(20);
+    tap(pill('switch.lr_tablet'));
+    await sleep(50);
+    eq(mock.calls.length, 0, 'body tap on a switch with controls does not toggle');
+    const pop = w.document.querySelector('[data-glasshouse-room-pop]');
+    ok(!!pop, 'body tap opens the panel');
+    const range = pop && pop.shadowRoot.querySelector('input[type=range]');
+    ok(!!range && range.max === '255' && range.value === '120', 'number control is a slider with its range and value');
+    range.value = '200'; range.dispatchEvent(new w.Event('change'));
+    eq(mock.calls.at(-1), { domain: 'number', service: 'set_value', data: { entity_id: 'number.lr_tablet_brightness', value: 200 } }, 'slider sets the number');
+    card._closePop();
+    tap(pill('switch.lr_tablet').querySelector('.ic'));
+    await sleep(20);
+    eq(mock.calls.at(-1).service, 'toggle', 'icon still toggles');
+  }
+
   console.log(`\n${passed} passed, ${failed} failed`);
   process.exit(failed ? 1 : 0);
 })();
