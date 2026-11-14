@@ -77,7 +77,8 @@ Entity object options:
 
 | Gesture | Action |
 |---|---|
-| Tap | Toggle (light, switch, fan, input boolean, cover). Run script/scene, press button. Sensors: more-info. |
+| Tap the icon | Toggle (light, switch, fan, input boolean, cover). Run script/scene, press button. |
+| Tap the tile | Adjustable devices (dimmable/colour lights, fans with speeds, covers with position): a floating panel with brightness / colour temperature / colour, speed or position opens right where you tapped (tap outside or Esc to close). Everything else: same as tapping the icon; sensors open more-info. |
 | Hold (500 ms) | Open / close the control sheet. Unavailable devices: more-info. |
 | Double-tap | More-info. |
 | Enter / Space | Toggle immediately. |

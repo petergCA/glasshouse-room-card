@@ -1,12 +1,12 @@
 /*!
- * Glasshouse Room Card v1.0.0
+ * Glasshouse Room Card v1.1.0
  * A room tile with full control of every device in the room.
  * Part of the Glasshouse card suite. MIT License (c) 2026 Peter Gray.
  */
 (() => {
   'use strict';
 
-  const VERSION = '1.0.0';
+  const VERSION = '1.1.0';
   const TAG = 'glasshouse-room-card';
 
   const HOLD_MS = 500;
@@ -329,6 +329,22 @@
       width: var(--tw); height: 40px; border: 0; border-radius: 12px;
       background: linear-gradient(#fff, #fff) center / 4px 20px no-repeat;
     }
+    input[type=range].hue { --tw: 30px; }
+    input[type=range].hue::-webkit-slider-runnable-track {
+      background: linear-gradient(90deg, #f00, #ff0 17%, #0f0 33%, #0ff 50%, #00f 67%, #f0f 83%, #f00); opacity: 0.85; }
+    input[type=range].hue::-moz-range-track {
+      background: linear-gradient(90deg, #f00, #ff0 17%, #0f0 33%, #0ff 50%, #00f 67%, #f0f 83%, #f00); opacity: 0.85; }
+    input[type=range].hue::-webkit-slider-thumb {
+      background: radial-gradient(circle at center, transparent 8px, #fff 8.5px, #fff 11px, transparent 11.5px);
+      filter: drop-shadow(0 1px 3px rgba(0,0,0,0.45)); }
+    input[type=range].hue::-moz-range-thumb {
+      background: radial-gradient(circle at center, transparent 8px, #fff 8.5px, #fff 11px, transparent 11.5px); }
+    /* ---------- floating control popover (lives in a portal on <body>) ---------- */
+    .pop { position: fixed; z-index: 9; width: min(320px, calc(100vw - 16px)); }
+    .pop .sheet { background: rgba(16, 22, 34, 0.92); -webkit-backdrop-filter: blur(22px) saturate(140%); backdrop-filter: blur(22px) saturate(140%);
+      box-shadow: inset 0 0 0 1px rgba(255,255,255,0.10), 0 18px 48px -12px rgba(0,0,0,0.7); animation: gh-pop 160ms cubic-bezier(.2,.8,.2,1); }
+    @keyframes gh-pop { from { opacity: 0; transform: scale(.96); } }
+    .pill .ic { cursor: pointer; }
     input[type=range].kelvin { --tw: 30px; }
     input[type=range].kelvin::-webkit-slider-runnable-track {
       background: linear-gradient(90deg, #ff9f43, #ffc98a 28%, #fff1dc 55%, #e8f0ff 80%, #c9dcff);
@@ -443,7 +459,7 @@
     const modes = (st && st.attributes.supported_color_modes) || [];
     const dimmable = modes.some((m) => DIMMABLE_MODES.has(m)) ||
       (!modes.length && isNum(st && st.attributes.brightness));
-    return { dimmable, temp: modes.includes('color_temp') };
+    return { dimmable, temp: modes.includes('color_temp'), color: modes.some((m) => COLOR_MODES.has(m)) };
   }
 
   function lightAccent(st) {
@@ -569,6 +585,7 @@
         this._clearBusy(id);
         if (this._pills.has(id)) this._updatePill(id);
         if (this._sheet && this._sheet.eid === id) this._sheet.update();
+        if (this._pop && this._pop.eid === id) this._pop.update();
       }
       this._updateHeader();
     }
@@ -585,6 +602,7 @@
     }
 
     disconnectedCallback() {
+      this._closePop();
       for (const t of this._tapTimers.values()) clearTimeout(t);
       this._tapTimers.clear();
       for (const t of this._busy.values()) clearTimeout(t);
@@ -689,11 +707,16 @@
       });
       el.addEventListener('pointercancel', cancel);
       el.addEventListener('pointerleave', cancel);
-      el.addEventListener('pointerup', () => {
+      el.addEventListener('pointerup', (e) => {
         clearTimeout(timer);
         if (!active) return;
         active = false;
-        if (!held) this._onTap(eid);
+        if (held) return;
+        const pill = this._pills.get(eid);
+        const onIcon = pill && pill.iconHost && e.composedPath().includes(pill.iconHost);
+        if (onIcon) { this._primary(eid); return; }
+        if (this._adjustable(eid)) { this._openPop(eid, e.clientX, e.clientY); return; }
+        this._onTap(eid);
       });
       // keyboard activation (Enter / Space) produces a click with detail 0
       el.addEventListener('click', (e) => {
@@ -723,6 +746,65 @@
         this._tapTimers.delete(eid);
         this._primary(eid);
       }, DOUBLE_TAP_MS));
+    }
+
+    /** Has more than on/off: the body tap opens the floating controls instead of toggling. */
+    _adjustable(eid) {
+      const st = this._hass && this._hass.states[eid];
+      if (isUnavailable(st)) return false;
+      const d = domainOf(eid);
+      if (d === 'light') { const c = lightCaps(st); return c.dimmable || c.temp || c.color; }
+      if (d === 'fan') return fanSupportsSpeed(st);
+      if (d === 'cover') return isNum(st.attributes.current_position);
+      return false;
+    }
+
+    _openPop(eid, x, y) {
+      const pill = this._pills.get(eid);
+      if (!pill) return;
+      const same = this._pop && this._pop.eid === eid;
+      this._closePop();
+      if (same) return;
+      this._haptic('light');
+      const host = document.createElement('div');
+      host.setAttribute('data-glasshouse-room-pop', '');
+      const root = host.attachShadow({ mode: 'open' });
+      root.append(h('style', { text: STYLE }));
+      const sheet = this._buildSheet(pill.ent, () => this._closePop());
+      const wrap = h('div', { class: 'pop' }, [sheet.el]);
+      root.append(wrap);
+      document.body.append(host);
+      sheet.update();
+      const vw = window.innerWidth, vh = window.innerHeight;
+      const r = wrap.getBoundingClientRect();
+      const left = clamp(x - r.width / 2, 8, Math.max(8, vw - r.width - 8));
+      let top = y + 14;
+      if (top + r.height > vh - 8) top = y - r.height - 14;
+      wrap.style.left = `${left}px`;
+      wrap.style.top = `${clamp(top, 8, Math.max(8, vh - r.height - 8))}px`;
+      pill.el.classList.add('sel');
+      const outside = (e) => { if (!e.composedPath().includes(wrap) && !e.composedPath().includes(pill.el)) this._closePop(); };
+      const key = (e) => { if (e.key === 'Escape') this._closePop(); };
+      const away = () => this._closePop();
+      document.addEventListener('pointerdown', outside, true);
+      document.addEventListener('keydown', key, true);
+      window.addEventListener('resize', away);
+      this._pop = { eid, host, el: sheet.el, update: sheet.update, off: () => {
+        document.removeEventListener('pointerdown', outside, true);
+        document.removeEventListener('keydown', key, true);
+        window.removeEventListener('resize', away);
+        pill.el.classList.remove('sel');
+      } };
+      const first = wrap.querySelector('input[type=range]');
+      if (first) first.focus({ preventScroll: true });
+    }
+
+    _closePop() {
+      if (!this._pop) return;
+      const p = this._pop;
+      this._pop = null;
+      p.off();
+      p.host.remove();
     }
 
     _onHold(eid) {
@@ -1083,7 +1165,8 @@
       this._pills.get(eid)?.el.focus({ preventScroll: true });
     }
 
-    _buildSheet(ent) {
+    _buildSheet(ent, onClose) {
+      const closeIt = onClose || (() => this._closeSheet());
       const eid = ent.entity;
       const d = domainOf(eid);
       const el = h('section', { class: 'sheet', role: 'region' });
@@ -1108,7 +1191,7 @@
         head.append(power);
       }
       const close = h('button', { class: 'close', type: 'button', 'aria-label': 'Close controls' }, [icon('mdi:close')]);
-      close.addEventListener('click', () => this._closeSheet());
+      close.addEventListener('click', () => closeIt());
       head.append(close);
 
       if (d === 'light') this._lightControls(eid, st0, body, updaters);
@@ -1126,7 +1209,7 @@
 
       const update = () => {
         const st = this._hass.states[eid];
-        if (isUnavailable(st)) { this._closeSheet(); return; }
+        if (isUnavailable(st)) { closeIt(); return; }
         const on = isActive(st);
         const label = this._entityName(ent, st);
         el.classList.toggle('on', on);
@@ -1221,7 +1304,17 @@
         body.append(s.wrap);
         updaters.push((x) => { s.set(x); s.setDim(x.state !== 'on' || x.attributes.color_mode !== 'color_temp'); });
       }
-      if (!caps.dimmable && !caps.temp) this._toggleControls(eid, body, updaters);
+      if (caps.color) {
+        const s = this._slider({
+          eid, key: 'hue', label: 'Colour', min: 0, max: 360, step: 1, cls: 'hue',
+          format: (v) => `${Math.round(v)}°`,
+          read: (x) => (Array.isArray(x.attributes.hs_color) ? Number(x.attributes.hs_color[0]) : 30),
+          commit: (v) => this._call('light', 'turn_on', { entity_id: eid, hs_color: [Math.round(v), 100] }),
+        });
+        body.append(s.wrap);
+        updaters.push((x) => { s.set(x); s.setDim(x.state !== 'on' || !COLOR_MODES.has(x.attributes.color_mode)); });
+      }
+      if (!caps.dimmable && !caps.temp && !caps.color) this._toggleControls(eid, body, updaters);
     }
 
     _fanControls(eid, st, body, updaters) {

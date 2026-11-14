@@ -83,10 +83,18 @@ function setup(opts) {
     const orig = card._updatePill.bind(card);
     card._updatePill = (id) => { updates.push(id); orig(id); };
     const floorEl = pill('light.lr_floor');
+    // tapping the tile body of a dimmable light opens the floating controls instead of toggling
     tap(floorEl);
-    eq(mock.calls.length, 0, 'tap waits for the double-tap window');
-    await sleep(320);
-    eq(mock.calls.at(-1), { domain: 'light', service: 'toggle', data: { entity_id: 'light.lr_floor' } }, 'tap toggles');
+    await sleep(50);
+    eq(mock.calls.length, 0, 'body tap on a dimmable light does not toggle');
+    ok(!!w.document.querySelector('[data-glasshouse-room-pop]'), 'body tap opens the floating controls');
+    ok(!!w.document.querySelector('[data-glasshouse-room-pop]').shadowRoot.querySelector('input[type=range]'), 'popover has a slider');
+    card._closePop();
+    ok(!w.document.querySelector('[data-glasshouse-room-pop]'), 'popover closes');
+    // tapping the icon toggles at once
+    tap(floorEl.querySelector('.ic'));
+    await sleep(20);
+    eq(mock.calls.at(-1), { domain: 'light', service: 'toggle', data: { entity_id: 'light.lr_floor' } }, 'icon tap toggles');
     eq(updates, ['light.lr_floor'], 'only the changed pill re-rendered');
     ok(pill('light.lr_floor') === floorEl, 'pill element reused');
     eq(floorEl.querySelector('.st').textContent, '100%', 'pill reflects new state');
