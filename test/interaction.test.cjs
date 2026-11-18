@@ -271,13 +271,20 @@ function setup(opts) {
     eq(mock.calls.length, n, 'switch on: the tap does not toggle');
     const secs = pop ? [...pop.shadowRoot.querySelectorAll('.subl')] : [];
     eq(secs.map((x) => x.querySelector('.subl-name').textContent), ['Left', 'Right'], 'one section per bulb');
-    eq(secs.map((x) => x.querySelectorAll('input[type=range]').length), [3, 3], 'brightness, color temperature and color per bulb');
     eq(secs.map((x) => x.querySelector('.sw').getAttribute('aria-checked')), ['true', 'false'], 'each bulb has its own power switch');
-    const r0 = secs[0] && secs[0].querySelector('input[type=range]');
-    r0.value = '80'; r0.dispatchEvent(new w.Event('change'));
-    eq(mock.calls.at(-1), { domain: 'light', service: 'turn_on', data: { entity_id: 'light.bulb_l', brightness_pct: 80 } }, 'bulb brightness slider sets that bulb');
     secs[1].querySelector('.sw').click();
     eq(mock.calls.at(-1), { domain: 'light', service: 'turn_on', data: { entity_id: 'light.bulb_r' } }, 'bulb switch turns that bulb on');
+    ok(!!w.document.querySelector('[data-glasshouse-room-pop]'), 'bulb switch keeps the panel open');
+    secs[0].click();
+    await sleep(20);
+    const pops = [...w.document.querySelectorAll('[data-glasshouse-room-pop]')];
+    eq(pops.length, 1, 'tapping a bulb swaps to one popup');
+    const bp = pops[0] && pops[0].shadowRoot;
+    eq(bp && bp.querySelector('.sh-name').textContent, 'Left', "the popup is the bulb's own");
+    eq(bp && bp.querySelectorAll('input[type=range]').length, 3, 'brightness, color temperature and color');
+    const r0 = bp.querySelector('input[type=range]');
+    r0.value = '80'; r0.dispatchEvent(new w.Event('change'));
+    eq(mock.calls.at(-1), { domain: 'light', service: 'turn_on', data: { entity_id: 'light.bulb_l', brightness_pct: 80 } }, 'bulb brightness slider sets that bulb');
     card._closePop();
   }
 

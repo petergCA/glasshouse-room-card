@@ -6,7 +6,7 @@
 (() => {
   'use strict';
 
-  const VERSION = '1.4.0';
+  const VERSION = '1.4.1';
   const NUMBER_DOMAINS = new Set(['number', 'input_number']);
   const TAG = 'glasshouse-room-card';
 
@@ -298,12 +298,23 @@
     .sw[aria-checked="true"] { background: var(--accent); box-shadow: 0 0 16px -6px var(--accent); }
     .sw[aria-checked="true"]::after { transform: translateX(20px); }
     .sh-body { display: flex; flex-direction: column; gap: 14px; margin-top: 14px; }
-    .subl { display: flex; flex-direction: column; gap: 12px; padding-top: 12px; border-top: 1px solid rgba(255,255,255,0.07); }
-    .subl-h { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
-    .subl-t { display: flex; flex-direction: column; min-width: 0; }
+    .subl { padding: 8px 10px 8px 8px; border-radius: 14px; background: rgba(255,255,255,0.05); cursor: pointer;
+      box-shadow: inset 0 0 0 1px rgba(255,255,255,0.06); transition: background var(--gh-ease), box-shadow var(--gh-ease); }
+    .subl:hover { background: rgba(255,255,255,0.08); }
+    .subl.on { background: color-mix(in srgb, var(--accent) 12%, rgba(255,255,255,0.04)); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 30%, transparent); }
+    .subl:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+    .subl-h { display: flex; align-items: center; gap: 10px; }
+    .subl-ic { flex: 0 0 auto; width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center;
+      color: var(--accent); background: color-mix(in srgb, var(--accent) 16%, transparent); }
+    .subl-ic ha-icon, .subl-ic ha-state-icon { --mdc-icon-size: 20px; }
+    .subl-go { color: var(--gh-text-2); display: grid; place-items: center; }
+    .subl-go ha-icon { --mdc-icon-size: 18px; }
+    .subl.dead { cursor: default; }
+    .subl.dead .subl-go { visibility: hidden; }
+    .subl-t { flex: 1 1 auto; display: flex; flex-direction: column; min-width: 0; }
     .subl-name { font-size: 14px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .subl-state { font-size: 12px; color: var(--gh-text-2); }
-    .subl.dead .ctl { opacity: 0.45; }
+
     .ctl-row { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
     .ctl-label {
       font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.09em; color: var(--gh-text-2);
@@ -783,8 +794,8 @@
       return true;
     }
 
-    _openPop(eid, x, y) {
-      const pill = this._pills.get(eid);
+    _openPop(eid, x, y, entOverride) {
+      const pill = this._pills.get(eid) || this._pills.get(this._ctlOwner.get(eid));
       if (!pill) return;
       const same = this._pop && this._pop.eid === eid;
       this._closePop();
@@ -794,7 +805,7 @@
       host.setAttribute('data-glasshouse-room-pop', '');
       const root = host.attachShadow({ mode: 'open' });
       root.append(h('style', { text: STYLE }));
-      const sheet = this._buildSheet(pill.ent, () => this._closePop());
+      const sheet = this._buildSheet(entOverride || pill.ent, () => this._closePop());
       const wrap = h('div', { class: 'pop' }, [sheet.el]);
       root.append(wrap);
       document.body.append(host);
@@ -1465,10 +1476,20 @@
           this._call('light', x.state === 'on' ? 'turn_off' : 'turn_on', { entity_id: c.entity });
           this._haptic('light');
         });
-        const sec = h('div', { class: 'subl' }, [h('div', { class: 'subl-h' }, [h('span', { class: 'subl-t' }, [label, stateTx]), sw])]);
+        const ic = h('span', { class: 'subl-ic' });
+        let iconRef = null;
+        const go = h('span', { class: 'subl-go', 'aria-hidden': 'true' }, [icon('mdi:chevron-right')]);
+        const sec = h('div', { class: 'subl', role: 'button', tabindex: '0' }, [h('div', { class: 'subl-h' }, [ic, h('span', { class: 'subl-t' }, [label, stateTx]), go, sw])]);
+        // tap a bulb: its own popup (brightness, color temperature, color), like any other light
+        const open = (e) => {
+          const x = this._hass.states[c.entity];
+          if (isUnavailable(x) || !lightCaps(x).dimmable && !lightCaps(x).temp && !lightCaps(x).color) return;
+          const r = sec.getBoundingClientRect();
+          this._openPop(c.entity, e && e.clientX ? e.clientX : r.left + r.width / 2, e && e.clientY ? e.clientY : r.top + r.height / 2, { entity: c.entity, name: c.name, icon: c.icon });
+        };
+        sec.addEventListener('click', (e) => { if (!e.composedPath().includes(sw)) open(e); });
+        sec.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(null); } });
         const own = [];
-        const caps = lightCaps(st);
-        if (caps.dimmable || caps.temp || caps.color) this._lightControls(c.entity, st, sec, own);
         body.append(sec);
         updaters.push(() => {
           const x = this._hass.states[c.entity];
@@ -1481,7 +1502,9 @@
           sw.disabled = dead;
           sec.style.setProperty('--accent', dead ? 'var(--gh-text-2)' : this._accentOf(c.entity, x));
           sec.classList.toggle('dead', dead);
-          for (const inp of sec.querySelectorAll('input')) inp.disabled = dead;
+          sec.classList.toggle('on', !dead && x.state === 'on');
+          sec.setAttribute('aria-label', `${nm} controls`);
+          iconRef = this._renderIcon(ic, { entity: c.entity, icon: c.icon }, x || { state: 'unavailable', attributes: {} }, iconRef);
           if (!dead) own.forEach((fn) => fn(x));
         });
       }
