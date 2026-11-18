@@ -246,6 +246,41 @@ function setup(opts) {
     eq(mock.calls.at(-1).service, 'toggle', 'icon still toggles');
   }
 
+  console.log('bulbs behind a wall switch');
+  {
+    const { mock, card, w, pill, tap } = setup();
+    const bulb = (id, state, name, a) => ({ entity_id: id, state, attributes: { friendly_name: name, supported_color_modes: ['color_temp', 'rgbw'],
+      min_color_temp_kelvin: 2200, max_color_temp_kelvin: 6500, ...(a || {}) }, last_changed: new Date().toISOString(), last_updated: new Date().toISOString() });
+    const withStates = (sw, l, r) => ({ ...mock.current, states: { ...mock.current.states,
+      'light.wall': { entity_id: 'light.wall', state: sw, attributes: { friendly_name: 'Office Lights', supported_color_modes: ['onoff'] }, last_changed: '', last_updated: '' },
+      'light.bulb_l': l, 'light.bulb_r': r } });
+    card.setConfig({ name: 'Office', entities: [{ entity: 'light.wall', controls: ['light.bulb_l', 'light.bulb_r'] }] });
+    card.hass = withStates('off', bulb('light.bulb_l', 'unavailable', 'Left'), bulb('light.bulb_r', 'unavailable', 'Right'));
+    await sleep(20);
+    tap(pill('light.wall'));
+    await sleep(350); // single tap waits out the double-tap window
+    ok(!w.document.querySelector('[data-glasshouse-room-pop]'), 'switch off: a tap does not open the panel');
+    eq(mock.calls.at(-1) && mock.calls.at(-1).service, 'toggle', 'switch off: a tap switches it on');
+    card.hass = withStates('on', bulb('light.bulb_l', 'on', 'Left', { brightness: 128, color_mode: 'color_temp', color_temp_kelvin: 3000 }), bulb('light.bulb_r', 'off', 'Right'));
+    await sleep(400);
+    const n = mock.calls.length;
+    tap(pill('light.wall'));
+    await sleep(50);
+    const pop = w.document.querySelector('[data-glasshouse-room-pop]');
+    ok(!!pop, 'switch on: a tap opens the panel');
+    eq(mock.calls.length, n, 'switch on: the tap does not toggle');
+    const secs = pop ? [...pop.shadowRoot.querySelectorAll('.subl')] : [];
+    eq(secs.map((x) => x.querySelector('.subl-name').textContent), ['Left', 'Right'], 'one section per bulb');
+    eq(secs.map((x) => x.querySelectorAll('input[type=range]').length), [3, 3], 'brightness, color temperature and color per bulb');
+    eq(secs.map((x) => x.querySelector('.sw').getAttribute('aria-checked')), ['true', 'false'], 'each bulb has its own power switch');
+    const r0 = secs[0] && secs[0].querySelector('input[type=range]');
+    r0.value = '80'; r0.dispatchEvent(new w.Event('change'));
+    eq(mock.calls.at(-1), { domain: 'light', service: 'turn_on', data: { entity_id: 'light.bulb_l', brightness_pct: 80 } }, 'bulb brightness slider sets that bulb');
+    secs[1].querySelector('.sw').click();
+    eq(mock.calls.at(-1), { domain: 'light', service: 'turn_on', data: { entity_id: 'light.bulb_r' } }, 'bulb switch turns that bulb on');
+    card._closePop();
+  }
+
   console.log(`\n${passed} passed, ${failed} failed`);
   process.exit(failed ? 1 : 0);
 })();

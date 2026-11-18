@@ -6,7 +6,7 @@
 (() => {
   'use strict';
 
-  const VERSION = '1.3.0';
+  const VERSION = '1.4.0';
   const NUMBER_DOMAINS = new Set(['number', 'input_number']);
   const TAG = 'glasshouse-room-card';
 
@@ -298,6 +298,12 @@
     .sw[aria-checked="true"] { background: var(--accent); box-shadow: 0 0 16px -6px var(--accent); }
     .sw[aria-checked="true"]::after { transform: translateX(20px); }
     .sh-body { display: flex; flex-direction: column; gap: 14px; margin-top: 14px; }
+    .subl { display: flex; flex-direction: column; gap: 12px; padding-top: 12px; border-top: 1px solid rgba(255,255,255,0.07); }
+    .subl-h { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+    .subl-t { display: flex; flex-direction: column; min-width: 0; }
+    .subl-name { font-size: 14px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .subl-state { font-size: 12px; color: var(--gh-text-2); }
+    .subl.dead .ctl { opacity: 0.45; }
     .ctl-row { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
     .ctl-label {
       font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.09em; color: var(--gh-text-2);
@@ -766,12 +772,15 @@
       const st = this._hass && this._hass.states[eid];
       if (isUnavailable(st)) return false;
       const d = domainOf(eid);
-      if (d === 'light') { const c = lightCaps(st); return c.dimmable || c.temp || c.color; }
+      if (d === 'light') { const c = lightCaps(st); if (c.dimmable || c.temp || c.color) return true; }
       if (d === 'fan') return fanSupportsSpeed(st);
       if (d === 'cover') return isNum(st.attributes.current_position);
       // any device with extra controls (e.g. a tablet screen switch + its brightness number) opens the panel too
       const own = this._config.entities.find((x) => x.entity === eid);
-      return !!(own && own.controls.length);
+      if (!(own && own.controls.length)) return false;
+      // bulbs behind a wall switch: while the switch is off they have no power, so a tap just switches it on
+      if (own.controls.some((c) => domainOf(c.entity) === 'light') && !isActive(st)) return false;
+      return true;
     }
 
     _openPop(eid, x, y) {
@@ -1309,7 +1318,7 @@
       if (caps.temp) {
         const { min, max } = kelvinRange(st);
         const s = this._slider({
-          eid, key: 'kelvin', label: 'Colour temperature', min, max, step: 50, cls: 'kelvin',
+          eid, key: 'kelvin', label: 'Color temperature', min, max, step: 50, cls: 'kelvin',
           format: (v) => `${Math.round(v)} K`,
           read: (x) => {
             const k = kelvinOf(x);
@@ -1322,7 +1331,7 @@
       }
       if (caps.color) {
         const s = this._slider({
-          eid, key: 'hue', label: 'Colour', min: 0, max: 360, step: 1, cls: 'hue',
+          eid, key: 'hue', label: 'Color', min: 0, max: 360, step: 1, cls: 'hue',
           format: (v) => `${Math.round(v)}°`,
           read: (x) => (Array.isArray(x.attributes.hs_color) ? Number(x.attributes.hs_color[0]) : 30),
           commit: (v) => this._call('light', 'turn_on', { entity_id: eid, hs_color: [Math.round(v), 100] }),
@@ -1444,6 +1453,39 @@
 
     /** Related on/off entities shown as toggle buttons (e.g. a fan's horizontal / vertical oscillation switches). */
     _extraControls(controls, body, updaters) {
+      // lights (e.g. smart bulbs behind a wall switch): a section per light with its own power switch and sliders
+      for (const c of controls.filter((x) => domainOf(x.entity) === 'light')) {
+        const st = this._hass.states[c.entity] || { state: 'unavailable', attributes: {} };
+        const label = h('span', { class: 'subl-name' });
+        const stateTx = h('span', { class: 'subl-state' });
+        const sw = h('button', { class: 'sw', type: 'button', role: 'switch' });
+        sw.addEventListener('click', () => {
+          const x = this._hass.states[c.entity];
+          if (isUnavailable(x)) return;
+          this._call('light', x.state === 'on' ? 'turn_off' : 'turn_on', { entity_id: c.entity });
+          this._haptic('light');
+        });
+        const sec = h('div', { class: 'subl' }, [h('div', { class: 'subl-h' }, [h('span', { class: 'subl-t' }, [label, stateTx]), sw])]);
+        const own = [];
+        const caps = lightCaps(st);
+        if (caps.dimmable || caps.temp || caps.color) this._lightControls(c.entity, st, sec, own);
+        body.append(sec);
+        updaters.push(() => {
+          const x = this._hass.states[c.entity];
+          const dead = isUnavailable(x);
+          const nm = c.name || (x && x.attributes.friendly_name) || c.entity;
+          label.textContent = nm;
+          stateTx.textContent = dead ? 'Starting up…' : x.state === 'on' ? (isNum(brightnessPct(x)) && brightnessPct(x) > 0 ? `${Math.round(brightnessPct(x))}%` : 'On') : 'Off';
+          sw.setAttribute('aria-checked', String(!dead && x.state === 'on'));
+          sw.setAttribute('aria-label', `${nm} power`);
+          sw.disabled = dead;
+          sec.style.setProperty('--accent', dead ? 'var(--gh-text-2)' : this._accentOf(c.entity, x));
+          sec.classList.toggle('dead', dead);
+          for (const inp of sec.querySelectorAll('input')) inp.disabled = dead;
+          if (!dead) own.forEach((fn) => fn(x));
+        });
+      }
+      controls = controls.filter((x) => domainOf(x.entity) !== 'light');
       // number / input_number controls become sliders (e.g. a tablet's screen brightness)
       for (const c of controls.filter((x) => NUMBER_DOMAINS.has(domainOf(x.entity)))) {
         const st = this._hass.states[c.entity];
