@@ -6,7 +6,7 @@
 (() => {
   'use strict';
 
-  const VERSION = '1.4.1';
+  const VERSION = '1.4.2';
   const NUMBER_DOMAINS = new Set(['number', 'input_number']);
   const TAG = 'glasshouse-room-card';
 
@@ -321,6 +321,14 @@
     }
     .ctl-val { font-size: 13px; font-weight: 650; font-variant-numeric: tabular-nums; color: var(--gh-text); }
     .ctl.dim .ctl-val { color: var(--gh-text-2); }
+    .eff-box { position: relative; }
+    .eff-box ha-icon { position: absolute; right: 12px; top: 50%; transform: translateY(-50%); --mdc-icon-size: 18px; color: var(--gh-text-2); pointer-events: none; }
+    .eff-sel { -webkit-appearance: none; appearance: none; width: 100%; height: 40px; padding: 0 38px 0 14px; border: 0; border-radius: 12px;
+      font: inherit; font-size: 14px; font-weight: 600; color: var(--gh-text); cursor: pointer;
+      background: color-mix(in srgb, var(--accent) 14%, rgba(255,255,255,0.06)); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 28%, transparent); }
+    .eff.dim .eff-sel { background: rgba(255,255,255,0.06); box-shadow: inset 0 0 0 1px rgba(255,255,255,0.08); color: var(--gh-text-2); }
+    .eff-sel:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+    .eff-sel option { color: #e9eef6; background: #141a26; }
 
     input[type=range] {
       --p: 0; --tw: 20px;
@@ -1350,7 +1358,30 @@
         body.append(s.wrap);
         updaters.push((x) => { s.set(x); s.setDim(x.state !== 'on' || !COLOR_MODES.has(x.attributes.color_mode)); });
       }
-      if (!caps.dimmable && !caps.temp && !caps.color) this._toggleControls(eid, body, updaters);
+      const effects = Array.isArray(st.attributes.effect_list) ? st.attributes.effect_list.filter((x) => typeof x === 'string' && x) : [];
+      if (effects.length) {
+        // effects (scenes built into the bulb): a native picker, which is a scroll wheel on iPhone
+        const wrap = h('div', { class: 'ctl eff' });
+        const sel = h('select', { class: 'eff-sel', 'aria-label': 'Effect' });
+        const none = h('option', { value: '', text: 'None' });
+        none.disabled = true;
+        sel.append(none, ...effects.map((x) => h('option', { value: x, text: x })));
+        const box = h('div', { class: 'eff-box' }, [sel, icon('mdi:chevron-down')]);
+        wrap.append(h('div', { class: 'ctl-row' }, [h('span', { class: 'ctl-label', text: 'Effect' })]), box);
+        sel.addEventListener('change', () => {
+          if (!sel.value) return;
+          this._call('light', 'turn_on', { entity_id: eid, effect: sel.value });
+          this._haptic('light');
+        });
+        body.append(wrap);
+        updaters.push((x) => {
+          const on = x.state === 'on';
+          const cur = on && typeof x.attributes.effect === 'string' && effects.includes(x.attributes.effect) ? x.attributes.effect : '';
+          if (sel.value !== cur && document.activeElement !== sel) sel.value = cur;
+          wrap.classList.toggle('dim', !cur);
+        });
+      }
+      if (!caps.dimmable && !caps.temp && !caps.color && !effects.length) this._toggleControls(eid, body, updaters);
     }
 
     _fanControls(eid, st, body, updaters) {

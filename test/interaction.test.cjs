@@ -250,7 +250,7 @@ function setup(opts) {
   {
     const { mock, card, w, pill, tap } = setup();
     const bulb = (id, state, name, a) => ({ entity_id: id, state, attributes: { friendly_name: name, supported_color_modes: ['color_temp', 'rgbw'],
-      min_color_temp_kelvin: 2200, max_color_temp_kelvin: 6500, ...(a || {}) }, last_changed: new Date().toISOString(), last_updated: new Date().toISOString() });
+      min_color_temp_kelvin: 2200, max_color_temp_kelvin: 6500, effect_list: ['Cozy', 'Ocean'], ...(a || {}) }, last_changed: new Date().toISOString(), last_updated: new Date().toISOString() });
     const withStates = (sw, l, r) => ({ ...mock.current, states: { ...mock.current.states,
       'light.wall': { entity_id: 'light.wall', state: sw, attributes: { friendly_name: 'Office Lights', supported_color_modes: ['onoff'] }, last_changed: '', last_updated: '' },
       'light.bulb_l': l, 'light.bulb_r': r } });
@@ -285,6 +285,10 @@ function setup(opts) {
     const r0 = bp.querySelector('input[type=range]');
     r0.value = '80'; r0.dispatchEvent(new w.Event('change'));
     eq(mock.calls.at(-1), { domain: 'light', service: 'turn_on', data: { entity_id: 'light.bulb_l', brightness_pct: 80 } }, 'bulb brightness slider sets that bulb');
+    const sel = bp.querySelector('select.eff-sel');
+    eq(sel ? [...sel.options].map((o) => o.value) : null, ['', 'Cozy', 'Ocean'], 'effect picker lists the effects');
+    sel.value = 'Ocean'; sel.dispatchEvent(new w.Event('change'));
+    eq(mock.calls.at(-1), { domain: 'light', service: 'turn_on', data: { entity_id: 'light.bulb_l', effect: 'Ocean' } }, 'picking an effect sets it on that bulb');
     card._closePop();
   }
 
